@@ -1,0 +1,10 @@
+GPU NVIDIA B200 SMs=148 L2=126MiB rows=32768 hidden=5376
+ROW|copy (bandwidth probe)|113.6|704.6|0.000|0.000|6202|0.0
+ROW|gate, one 8192 tile per row|189.8|1057.0|0.352|0.333|5570|1856.7
+ROW|gate, 2048-column tiles|168.6|1057.0|0.352|0.333|6270|2090.0
+CHECK gate row==col: True
+ROW|norm+modulate alone|212.8|704.6|1.057|1.500|3311|4966.2
+ROW|gate then norm+modulate (2 kernels)|392.9|1761.6|1.409|0.800|4483|3586.6
+ROW|fused gate+norm+modulate (1 kernel)|307.1|1409.3|1.409|1.000|4589|4589.0
+CHECK fused==unfused: y True out True
+ROW|GEMM 8192x8192x8192|706.7|402.7|1099.512|2730.667|570|1555795.3

@@ -1,0 +1,24 @@
+==PROF== Connected to process 361 (/usr/bin/python3.12)
+GPU NVIDIA B200 SMs=148 L2=126MiB rows=32768 hidden=5376
+ROW|copy (bandwidth probe)|nan|704.6|0.000|0.000|nan|nan
+==PROF== Profiling "gate_row_kernel" - 0: 0%....50%....100% - 41 passes
+ROW|gate, one 8192 tile per row|nan|1057.0|0.352|0.333|nan|nan
+==PROF== Profiling "gate_col_kernel" - 1: 0%....50%....100% - 41 passes
+ROW|gate, 2048-column tiles|nan|1057.0|0.352|0.333|nan|nan
+CHECK gate row==col: True
+==PROF== Profiling "norm_mod_kernel" - 2: 0%....50%....100% - 41 passes
+ROW|norm+modulate alone|nan|704.6|1.057|1.500|nan|nan
+ROW|gate then norm+modulate (2 kernels)|nan|1761.6|1.409|0.800|nan|nan
+==PROF== Profiling "fused_gate_norm_mod_kernel" - 3: 0%....50%....100% - 41 passes
+ROW|fused gate+norm+modulate (1 kernel)|nan|1409.3|1.409|1.000|nan|nan
+CHECK fused==unfused: y True out True
+==PROF== Profiling "nvjet_sm100_tst_128x256_64x6_..." - 4: 0%....50%....100% - 41 passes
+ROW|GEMM 8192x8192x8192|nan|402.7|1099.512|2730.667|nan|nan
+==PROF== Profiling "nvjet_sm100_tst_128x8_64x12_2..." - 5: 0%....50%....100% - 41 passes
+==PROF== Profiling "splitKreduce_kernel" - 6: 0%....50%....100% - 41 passes
+ROW|decode GEMM M=1 K=8192 N=28672|nan|469.8|0.470|1.000|nan|nan
+==PROF== Profiling "nvjet_sm100_tst_448x64_64x3_2..." - 7: 0%....50%....100% - 41 passes
+ROW|decode GEMM M=128 K=8192 N=28672|nan|479.2|60.130|125.479|nan|nan
+==PROF== Profiling "nvjet_sm100_tst_128x256_64x6_..." - 8: 0%....50%....100% - 41 passes
+ROW|decode GEMM M=4096 K=8192 N=28672|nan|771.8|1924.145|2493.217|nan|nan
+==PROF== Disconnected from process 361

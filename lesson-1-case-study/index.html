@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roofline Case Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#fdfcf9; --fg:#1d1d1b; --muted:#5f5e5a; --line:#e4e1da; --box:#f3f1ec; --accent:#9a3412; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#16161a; --fg:#e7e5df; --muted:#a19f99; --line:#2d2c32; --box:#1f1f24; --accent:#f0a07f; } }
+  :root[data-theme="dark"] { --bg:#16161a; --fg:#e7e5df; --muted:#a19f99; --line:#2d2c32; --box:#1f1f24; --accent:#f0a07f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.68 "Source Serif 4",Georgia,serif; }
+  main { max-width:780px; margin:0 auto; padding:48px 16px 96px; }
+  h1 { font-size:1.9rem; font-weight:600; margin:0 0 6px; line-height:1.25; }
+  .sub { color:var(--muted); font-style:italic; margin:0 0 28px; }
+  h2 { font-size:1.3rem; font-weight:600; margin:44px 0 10px; }
+  h2 .n { color:var(--accent); margin-right:.45em; }
+  p { margin:0 0 14px; text-align:justify; hyphens:auto; }
+  a { color:var(--accent); }
+  code { font:0.82em "JetBrains Mono",ui-monospace,Menlo,monospace; }
+  pre { background:var(--box); border-left:3px solid var(--line); padding:12px 14px; overflow-x:auto; font:0.8rem/1.55 "JetBrains Mono",ui-monospace,Menlo,monospace; }
+  figure { margin:24px 0; } figure svg { width:100%; height:auto; display:block; }
+  figcaption { font-size:.88rem; color:var(--muted); margin-top:8px; } figcaption b { color:var(--fg); }
+  .tw { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; margin:14px 0 6px; font-size:.86rem; }
+  th, td { padding:6px 8px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; }
+  td.r, th.r { text-align:right; font-variant-numeric:tabular-nums; }
+  thead th { border-bottom:1.5px solid var(--fg); font-weight:600; }
+  tbody tr:last-child td { border-bottom:1.5px solid var(--fg); }
+  .tcap { font-size:.88rem; color:var(--muted); margin:0 0 18px; } .tcap b { color:var(--fg); }
+  .finding { border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:10px 0 4px; margin:18px 0; }
+  .finding .h { font-variant:small-caps; letter-spacing:.04em; font-weight:600; color:var(--accent); }
+  ul { padding-left:1.3em; } li { margin:4px 0; }
+  @media (max-width:600px) { p { text-align:left; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Roofline Case Study: Four Kernels on the B200</h1>
+<p class="sub">Companion to <a href="../gpu-perf-lesson-1-the-roofline-model.html">GPU Perf Lesson 1: The Roofline Model</a>, vLLM Study Group. Measured 2026-11-21 on NVIDIA B200 GPUs.</p>
+
+<h2><span class="n">1</span>Question</h2>
+<p>The roofline model claims that two numbers, a kernel's arithmetic intensity and its achieved performance, suffice to say which resource limits it and how much it could still gain. This study tests the claim on four kernels chosen to occupy the four characteristic positions on a roofline: a memory-bound kernel on its roof, a memory-bound kernel well beneath it, and one matrix multiplication measured at two batch sizes, once on each side of the ridge point.</p>
+
+<h2><span class="n">2</span>Method</h2>
+<p>The two element-wise kernels are small Triton kernels written for this study after the modulation operations of MiniMax-H3, operating on 32,768 rows of 5,376 BF16 elements. The matrix multiplication is a decode-shaped cuBLAS GEMM: <i>M</i> token vectors of length 8,192 multiplied by a BF16 weight of 8,192 × 28,672 (470 MB, larger than the 126 MB L2, so that every launch reads it from DRAM). Nsight Compute profiled one launch of each case with the full section set on one B200, after one warm-up launch outside the profiled range.</p>
+<p>Each point on the roofline is computed from three quantities. The bytes are the DRAM reads and writes measured by Nsight Compute. The time is the kernel duration measured by Nsight Compute. The operations are counted from the algorithm (2<i>MKN</i> for the GEMM, 2 and 6 per element for the gate and the norm), because Nsight Compute's BF16 tensor-operation counters read zero for these Blackwell cuBLAS kernels although their tensor pipes were 73 to 82 percent busy; the profiler's own roofline chart would therefore place the GEMM far below its true position. The memory roof is the peak Nsight Compute reports for the device, 1.92 kB per DRAM cycle at 3.995 GHz, or 7.67 TB/s. The compute roof is NVIDIA's figure for dense BF16, 2.25 PFLOP/s, which places the ridge point at 293 FLOP/byte.</p>
+
+<h2><span class="n">3</span>The four cases</h2>
+<div class="tw"><table>
+<thead><tr><th>Case</th><th class="r">ncu launch</th><th class="r">Time (µs)</th><th class="r">DRAM (MB)</th><th class="r">Intensity (FLOP/B)</th><th class="r">Bandwidth</th><th class="r">Performance</th><th class="r">% of roof</th></tr></thead>
+<tbody>
+<tr><td>1. Gate, column-tiled</td><td class="r">1</td><td class="r">155.3</td><td class="r">1,028</td><td class="r">0.34</td><td class="r">6.62 TB/s</td><td class="r">2.3 TFLOP/s</td><td class="r">86%</td></tr>
+<tr><td>2. Norm + modulate</td><td class="r">2</td><td class="r">206.9</td><td class="r">663</td><td class="r">1.59</td><td class="r">3.20 TB/s</td><td class="r">5.1 TFLOP/s</td><td class="r">42%</td></tr>
+<tr><td>3. Decode GEMM, M = 1</td><td class="r">5, 6</td><td class="r">72.7</td><td class="r">474</td><td class="r">0.99</td><td class="r">6.52 TB/s</td><td class="r">6.5 TFLOP/s</td><td class="r">85%</td></tr>
+<tr><td>4. Decode GEMM, M = 4,096</td><td class="r">8</td><td class="r">1,183.0</td><td class="r">1,830</td><td class="r">1,051.65</td><td class="r">1.55 TB/s</td><td class="r">1.63 PFLOP/s</td><td class="r">72%</td></tr>
+</tbody></table></div>
+<p class="tcap"><b>Table 1</b> One profiled launch per case from <code>roofline-cases.ncu-repz</code>. For case 3 the time and bytes are those of the GEMM kernel (launch 5); its split-K reduction (launch 6) adds 6.6 µs and under 1 MB. “% of roof” is achieved performance divided by the roof at the same intensity.</p>
+
+<h2><span class="n">4</span>The roofline</h2>
+<figure>
+<svg viewBox="0 0 720 470" role="img" aria-label="Roofline of four cases measured on a B200">
+<style>
+.grid{stroke:var(--line);stroke-width:1} .frame{fill:none;stroke:var(--muted);stroke-width:1}
+.tick{font:12px "Source Serif 4",Georgia,serif;fill:var(--muted)} .axis{font:13px "Source Serif 4",Georgia,serif;fill:var(--fg)}
+.roof{fill:none;stroke:var(--fg);stroke-width:2.5} .ridge{stroke:var(--muted);stroke-dasharray:3 4}
+.note{font:italic 12px "Source Serif 4",Georgia,serif;fill:var(--muted)}
+.pt{fill:var(--accent);stroke:var(--bg);stroke-width:1.5} .num{font:600 9px "Source Serif 4",Georgia,serif;fill:var(--bg)}
+.lead{stroke:var(--muted);stroke-width:1} .lab{font:600 13px "Source Serif 4",Georgia,serif;fill:var(--fg)}
+.sublab{font:12px "Source Serif 4",Georgia,serif;fill:var(--muted)}
+</style>
+<line x1="78.0" y1="22" x2="78.0" y2="408" class="grid"/>
+<text x="78.0" y="426" class="tick" text-anchor="middle">0.1</text>
+<line x1="201.6" y1="22" x2="201.6" y2="408" class="grid"/>
+<text x="201.6" y="426" class="tick" text-anchor="middle">1</text>
+<line x1="325.2" y1="22" x2="325.2" y2="408" class="grid"/>
+<text x="325.2" y="426" class="tick" text-anchor="middle">10</text>
+<line x1="448.8" y1="22" x2="448.8" y2="408" class="grid"/>
+<text x="448.8" y="426" class="tick" text-anchor="middle">100</text>
+<line x1="572.4" y1="22" x2="572.4" y2="408" class="grid"/>
+<text x="572.4" y="426" class="tick" text-anchor="middle">1,000</text>
+<line x1="696.0" y1="22" x2="696.0" y2="408" class="grid"/>
+<text x="696.0" y="426" class="tick" text-anchor="middle">10,000</text>
+<line x1="78" y1="408.0" x2="696" y2="408.0" class="grid"/>
+<text x="70" y="412.0" class="tick" text-anchor="end">0.1</text>
+<line x1="78" y1="330.8" x2="696" y2="330.8" class="grid"/>
+<text x="70" y="334.8" class="tick" text-anchor="end">1</text>
+<line x1="78" y1="253.6" x2="696" y2="253.6" class="grid"/>
+<text x="70" y="257.6" class="tick" text-anchor="end">10</text>
+<line x1="78" y1="176.4" x2="696" y2="176.4" class="grid"/>
+<text x="70" y="180.4" class="tick" text-anchor="end">100</text>
+<line x1="78" y1="99.2" x2="696" y2="99.2" class="grid"/>
+<text x="70" y="103.2" class="tick" text-anchor="end">1,000</text>
+<line x1="78" y1="22.0" x2="696" y2="22.0" class="grid"/>
+<text x="70" y="26.0" class="tick" text-anchor="end">10,000</text>
+<rect x="78" y="22" width="618" height="386" class="frame"/>
+<polyline class="roof" points="78.0,339.7 506.6,72.0 696.0,72.0"/>
+<line x1="506.6" y1="72.0" x2="506.6" y2="408" class="ridge"/>
+<text x="512.6" y="400" class="note">ridge ≈ 293 FLOP/byte</text>
+<text x="211.4" y="64.0" class="note">compute roof: 2,250 TFLOP/s (dense BF16)</text>
+<text x="335.0" y="169.2" class="note" transform="rotate(-32.0 335.0 169.2)">memory roof: 7.67 TB/s</text>
+<line x1="144.1" y1="303.3" x2="138.1" y2="342.3" class="lead"/>
+<circle cx="144.1" cy="303.3" r="6" class="pt"/>
+<text x="144.1" y="306.8" class="num" text-anchor="middle">1</text>
+<text x="138.1" y="355.3" class="lab" text-anchor="start">1. Gate, column-tiled</text>
+<text x="138.1" y="370.3" class="sublab" text-anchor="start">I = 0.34 · 86% of roof</text>
+<line x1="226.7" y1="276.1" x2="266.7" y2="277.1" class="lead"/>
+<circle cx="226.7" cy="276.1" r="6" class="pt"/>
+<text x="226.7" y="279.6" class="num" text-anchor="middle">2</text>
+<text x="266.7" y="290.1" class="lab" text-anchor="start">2. Norm + modulate</text>
+<text x="266.7" y="305.1" class="sublab" text-anchor="start">I = 1.59 · 42% of roof</text>
+<line x1="201.1" y1="268.2" x2="131.1" y2="208.2" class="lead"/>
+<circle cx="201.1" cy="268.2" r="6" class="pt"/>
+<text x="201.1" y="271.7" class="num" text-anchor="middle">3</text>
+<text x="131.1" y="190.2" class="lab" text-anchor="start">3. Decode GEMM, M = 1</text>
+<text x="131.1" y="205.2" class="sublab" text-anchor="start">I = 0.99 · 85% of roof</text>
+<line x1="575.1" y1="82.9" x2="515.1" y2="126.9" class="lead"/>
+<circle cx="575.1" cy="82.9" r="6" class="pt"/>
+<text x="575.1" y="86.4" class="num" text-anchor="middle">4</text>
+<text x="515.1" y="139.9" class="lab" text-anchor="start">4. Decode GEMM,</text>
+<text x="515.1" y="155.9" class="lab" text-anchor="start">M = 4,096</text>
+<text x="515.1" y="170.9" class="sublab" text-anchor="start">I = 1,052 · 72% of roof</text>
+<text x="387.0" y="456" class="axis" text-anchor="middle">Arithmetic intensity (FLOP/byte of DRAM traffic)</text>
+<text x="18" y="215.0" class="axis" text-anchor="middle" transform="rotate(-90 18 215.0)">Performance (TFLOP/s)</text>
+</svg>
+<figcaption><b>Figure 1</b> The four cases on the roofline of one B200. Both axes are logarithmic. The sloped line is the memory roof, 7.67 TB/s times intensity; the horizontal line is the compute roof; they meet at the ridge point. Every kernel lies on or below the roof.</figcaption>
+</figure>
+
+<h2><span class="n">5</span>Reading the roofline</h2>
+<div class="finding"><div class="h">Points 1 and 2: same side, different distance.</div>
+<p>Both element-wise kernels lie two to three decades left of the ridge, so both are memory-bound: no change to their arithmetic could make them faster. They differ in their distance from the roof. The column-tiled gate reaches 86% of the roof and has little left to gain. The norm kernel reaches only 42%. Its intensity is slightly higher, so its roof is higher, yet it delivers less: it uses 74 registers per thread, which limits theoretical occupancy to 37.5 percent and leaves too few warps to cover memory latency. The vertical gap between a point and the roof is the opportunity, and here it identifies the norm kernel as the one worth optimizing.</p></div>
+
+<div class="finding"><div class="h">Points 3 and 4: one operation on both sides of the ridge.</div>
+<p>The decode GEMM with one token has an intensity of about 1 FLOP/byte, no higher than an element-wise kernel. It is memory-bound and runs at 85% of the memory roof: its time is the time to read the 470 MB weight. With 4,096 tokens the same multiplication reuses each weight tile across many rows, its intensity rises to about 1,050 FLOP/byte, and it moves to the compute side of the ridge at 72% of the compute roof. Nsight Compute shows the hand-over directly: DRAM throughput falls from 85 to 20 percent of peak and SM throughput rises from 25 to 97 percent. The shortfall from the compute roof at <i>M</i> = 4,096 reflects the clock, which ran at 1.39 GHz under sustained tensor-core load.</p></div>
+
+<div class="finding"><div class="h">What the chart does not show.</div>
+<p>The roofline locates a kernel; it does not explain it. Why the norm kernel sits low required the occupancy and register data in Nsight Compute's Launch Statistics and Occupancy sections. Why the large GEMM's intensity is 1,050 and not the 2,493 its operand sizes suggest required the measured bytes of Section 6.</p></div>
+
+<h2><span class="n">6</span>Checking the byte model</h2>
+<div class="tw"><table>
+<thead><tr><th>Case</th><th class="r">Minimum read (MB)</th><th class="r">Measured read (MB)</th><th class="r">Minimum write (MB)</th><th class="r">Measured write (MB)</th></tr></thead>
+<tbody>
+<tr><td>1. Gate, column-tiled</td><td class="r">705</td><td class="r">706</td><td class="r">352</td><td class="r">322</td></tr>
+<tr><td>2. Norm + modulate</td><td class="r">352</td><td class="r">353</td><td class="r">352</td><td class="r">310</td></tr>
+<tr><td>3. Decode GEMM, <i>M</i> = 1</td><td class="r">470</td><td class="r">470</td><td class="r">0.06</td><td class="r">4</td></tr>
+<tr><td>4. Decode GEMM, <i>M</i> = 4,096</td><td class="r">537</td><td class="r">1,601</td><td class="r">235</td><td class="r">228</td></tr>
+</tbody></table></div>
+<p class="tcap"><b>Table 2</b> The minimum DRAM traffic each kernel must generate, against the traffic Nsight Compute measured.</p>
+<p>For cases 1 to 3 the measured reads match the minimum to within a megabyte: each input element is read once, and the small gate and norm tables are served from L2. Measured writes fall 30 to 43 MB short for the element-wise kernels because L2 is a write-back cache and the last part of each output reaches DRAM after the kernel ends; the 4 MB written by case 3 are the split-K partial sums. Case 4 reads three times its minimum, because its operands do not fit in L2 together and tiles are fetched more than once. Using the minimum would have placed case 4 at 2,493 FLOP/byte instead of 1,050. The conclusion would not change here, but a gap of this kind is worth checking whenever a kernel's position on the roofline matters.</p>
+
+<h2><span class="n">7</span>Limitations</h2>
+<ul>
+  <li>The element-wise kernels are simplified stand-ins written for teaching, not the vLLM-Omni implementations.</li>
+  <li>These are isolated launches. Inside a model, memory-bound kernels run slower than in isolation.</li>
+  <li>Nsight Compute replays each kernel many times and controls clocks between passes, so its durations differ by a few percent from free-running timings.</li>
+  <li>The compute roof is a vendor figure at boost clock. The achieved clock under load was lower, so the effective compute roof for case 4 was lower than drawn.</li>
+</ul>
+
+<h2><span class="n">8</span>Files</h2>
+<div class="tw"><table>
+<thead><tr><th>File</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><a href="roofline-cases.ncu-repz"><code>roofline-cases.ncu-repz</code></a></td><td>Nsight Compute report, full section set, one launch per case. The four cases above are launches 1, 2, 5 (with its reduction, 6) and 8. Launches 0, 3, 4 and 7 are the supplementary cases of Appendix A.</td></tr>
+<tr><td><a href="ncu-cases-details.csv"><code>ncu-cases-details.csv</code></a>, <a href="ncu-cases-raw.csv"><code>ncu-cases-raw.csv</code></a></td><td>Exports of the Details and Raw pages of the report.</td></tr>
+<tr><td><a href="bench_roofline_lesson.py"><code>bench_roofline_lesson.py</code></a></td><td>The benchmark: self-contained Triton kernels and cuBLAS GEMMs, timed with CUDA events.</td></tr>
+<tr><td><a href="timing-elementwise-gpu1.log"><code>timing-elementwise-gpu1.log</code></a>, <a href="timing-elementwise-gpu2.log"><code>timing-elementwise-gpu2.log</code></a>, <a href="timing-decode.log"><code>timing-decode.log</code></a></td><td>Free-running timings for Appendix A, two GPUs for the element-wise kernels. Fields: name, time (µs), bytes (MB), GFLOP, intensity, GB/s, GFLOP/s.</td></tr>
+<tr><td><a href="ncu-cases-run.log"><code>ncu-cases-run.log</code></a></td><td>Profiler log.</td></tr>
+</tbody></table></div>
+<p>To reproduce on a machine with a B200, PyTorch, Triton and Nsight Compute:</p>
+<pre><code>python bench_roofline_lesson.py                        # element-wise kernels and square GEMM
+PART=decode python bench_roofline_lesson.py            # decode GEMM sweep
+
+NCU_MODE=1 DECODE_MS="1 128 4096" ncu --set full --nvtx \
+  --nvtx-include gate_row/ --nvtx-include gate_col/ --nvtx-include norm_mod/ \
+  --nvtx-include fused/ --nvtx-include gemm_8192/ --nvtx-include decode_M1/ \
+  --nvtx-include decode_M128/ --nvtx-include decode_M4096/ \
+  -o roofline-cases python bench_roofline_lesson.py</code></pre>
+
+<h2><span class="n">A</span>Appendix: supplementary measurements</h2>
+<p>The lesson cites the following measurements. Times are medians of CUDA-event timings (100 launches for the element-wise kernels, 50 for the decode sweep, each on one B200); bandwidths use the minimum byte counts.</p>
+<div class="tw"><table>
+<thead><tr><th>Kernel</th><th class="r">Time (µs)</th><th class="r">Bandwidth</th><th class="r">Regs/thread</th><th class="r">Theor. occ.</th><th class="r">Achieved occ.</th></tr></thead>
+<tbody>
+<tr><td>Copy (bandwidth probe)</td><td class="r">113.8</td><td class="r">6.19 TB/s</td><td class="r">—</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td>Gate, one 8192 tile per row</td><td class="r">189.9</td><td class="r">5.57 TB/s</td><td class="r">48</td><td class="r">62.5%</td><td class="r">50.6%</td></tr>
+<tr><td>Gate, 2048-column tiles</td><td class="r">169.0</td><td class="r">6.26 TB/s</td><td class="r">32</td><td class="r">100%</td><td class="r">86.2%</td></tr>
+<tr><td>Norm + modulate</td><td class="r">213.0</td><td class="r">3.31 TB/s</td><td class="r">74</td><td class="r">37.5%</td><td class="r">32.9%</td></tr>
+<tr><td>Gate then norm (two kernels)</td><td class="r">393.2</td><td class="r">4.48 TB/s</td><td class="r">—</td><td class="r">—</td><td class="r">—</td></tr>
+<tr><td>Fused gate + norm + modulate</td><td class="r">307.3</td><td class="r">4.59 TB/s</td><td class="r">70</td><td class="r">37.5%</td><td class="r">34.2%</td></tr>
+<tr><td>GEMM 8192 × 8192 × 8192</td><td class="r">723.4</td><td class="r">1.52 PFLOP/s</td><td class="r">255</td><td class="r">12.5%</td><td class="r">9.4%</td></tr>
+</tbody></table></div>
+<p class="tcap"><b>Table A.1</b> Element-wise kernels and a square GEMM. Occupancy from Nsight Compute.</p>
+<div class="tw"><table>
+<thead><tr><th class="r">M</th><th class="r">1</th><th class="r">16</th><th class="r">64</th><th class="r">128</th><th class="r">256</th><th class="r">512</th><th class="r">1,024</th><th class="r">4,096</th><th class="r">8,192</th></tr></thead>
+<tbody>
+<tr><td>Time (µs)</td><td class="r">82.3</td><td class="r">86.3</td><td class="r">77.5</td><td class="r">92.8</td><td class="r">100.6</td><td class="r">171.4</td><td class="r">343.9</td><td class="r">1,383.9</td><td class="r">2,645.5</td></tr>
+<tr><td>TFLOP/s</td><td class="r">5.7</td><td class="r">87</td><td class="r">388</td><td class="r">648</td><td class="r">1,196</td><td class="r">1,403</td><td class="r">1,399</td><td class="r">1,390</td><td class="r">1,455</td></tr>
+</tbody></table></div>
+<p class="tcap"><b>Table A.2</b> Decode GEMM sweep, <i>K</i> = 8,192, <i>N</i> = 28,672. Time is nearly constant up to <i>M</i> = 256 and grows with <i>M</i> beyond the ridge.</p>
+</main>
+</body>
+</html>

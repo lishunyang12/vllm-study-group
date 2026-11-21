@@ -679,10 +679,12 @@
   <li><b>[15]</b> Explain why the measured writes in Table 6.1 are smaller than the model for cases 1 and 2. Would the discrepancy grow or shrink, in absolute and in relative terms, if the output were ten times larger?</li>
   <li><b>[15]</b> The fused kernel of Section 8.2 moves 8 bytes per element. If it ran at the same bandwidth as case 1, what would its time be? Compare with the measured 307 µs and explain the difference using Table 7.1.</li>
   <li><b>[20]</b> Explain why Nsight Compute's own roofline chart would place cases 3 and 4 near zero performance, and describe how you would detect such a problem in a profile of an unfamiliar kernel.</li>
-  <li><b>[20]</b> Implement cases 1 and 2 and profile one launch of each with Nsight Compute (<code>ncu --set full</code>). In the report, select case 2, add case 1 as a baseline, and compare the Occupancy and Warp State Statistics sections. Which stall reason dominates in each, and how does it relate to Section 7.2?</li>
+  <li><b>[20]</b> Download the Nsight Compute report <a href="https://lishunyang12.github.io/vllm-study-group/lesson-1-case-study/roofline-cases.ncu-repz"><code>roofline-cases.ncu-repz</code></a> and open it in Nsight Compute. Select launch 2 (case 2), add launch 1 (case 1) as a baseline, and compare the Occupancy and Warp State Statistics sections. Which stall reason dominates in each, and how does it relate to Section 7.2?</li>
   <li><b>[30]</b> Propose a change to the tiling of case 2 that would reduce its registers per thread while still computing the row norm, and predict its position on the roofline. Implement it in Triton, verify that its output is unchanged, and measure the result.</li>
 </ol>
 <p class="marg">Bracketed numbers estimate the time in minutes, after the convention of Hennessy and Patterson.</p>
+
+<p>The measurements, benchmark code, and Nsight Compute report behind every figure and table are in the <a href="https://lishunyang12.github.io/vllm-study-group/lesson-1-case-study/">companion case study</a>.</p>
 
 
 <h2>References</h2>
